@@ -12,7 +12,6 @@
 #include <time.h>
 #include <netdb.h>
 #include <math.h>
-#include <string.h>
 
 #include "globals.h"
 #include "signal.h"

@@ -18,5 +18,7 @@ void handle_sigint(int signo)
 		double mdev = sqrt(rtt_sum2 / received - avg * avg);
 		printf("rtt min/avg/max/mdev = %.3f/%.3f/%.3f/%.3f ms\n", rtt_min, avg, rtt_max, mdev);
 	}
+	if (sockfd >= 0)
+		close(sockfd);
 	exit(0);
 }
