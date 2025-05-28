@@ -1,0 +1,200 @@
+#include "ping.h"
+
+#define PACKET_SIZE 64
+
+/**
+ * checksum — Compute the 16-bit Internet checksum (RFC 1071) over a data block.
+ *
+ * This routine implements the standard “ones-complement” checksum used by
+ * ICMP, IP, TCP, UDP, etc.  It:
+ *   1) Adds up all 16-bit words in the buffer.
+ *   2) If there’s an odd byte at the end, it pads it to 16 bits and adds it.
+ *   3) Folds any carry bits from the upper 16 bits back into the lower 16 bits
+ *      (repeat until no more carries).
+ *   4) Returns the ones-complement of the final sum.
+ *
+ * The caller should set the checksum field in the packet to 0 before calling.
+ */
+static uint16_t checksum(void *data, int len)
+{
+    uint16_t *buf = data;
+    uint32_t sum = 0;
+    for (int i = len; i > 1; i -= 2)
+        sum += *buf++;
+    if (len == 1)
+        sum += *(uint8_t *)buf;
+    sum = (sum >> 16) + (sum & 0xFFFF);
+    sum += (sum >> 16);
+    return ~sum;
+}
+/**
+ * build the ping packet
+ */
+static int build_packet(uint16_t seq, char *packet)
+{
+    struct icmphdr *icmp = (struct icmphdr *)packet;
+    icmp->type = ICMP_ECHO;
+    icmp->code = 0;
+    icmp->un.echo.id = htons(getpid() & 0xFFFF);
+    icmp->un.echo.sequence = htons(seq);
+    icmp->checksum = 0;
+    memset(packet + sizeof(*icmp), 0xA5, PACKET_SIZE - sizeof(*icmp));
+    icmp->checksum = checksum(packet, PACKET_SIZE);
+    return PACKET_SIZE;
+}
+
+/**
+ * send a ping to the target
+ */
+static int send_echo(int sockfd, struct sockaddr_in *dest)
+{
+    static uint16_t seq = 1;
+    char packet[PACKET_SIZE];
+    int len = build_packet(seq, packet);
+    clock_gettime(CLOCK_MONOTONIC, &last_send.send_ts);
+    last_send.seq = seq;
+    transmitted++;
+    seq++;
+    if (sendto(sockfd, packet, len, 0, (struct sockaddr *)dest, sizeof(*dest)) <= 0)
+        return (perror("sendto"), -1);
+    return len;
+}
+
+/*
+ * cumpute the rtt
+ * RTT stands for Round-Trip Time—the elapsed time between when you send an ICMP “echo request”
+ * packet and when you receive the corresponding “echo reply.”
+ */
+void cumputeRTT(double ms)
+{
+    if (received == 1)
+        rtt_min = rtt_max = ms;
+    else
+    {
+        if (ms < rtt_min)
+            rtt_min = ms;
+        if (ms > rtt_max)
+            rtt_max = ms;
+    }
+    rtt_sum += ms;
+    rtt_sum2 += ms * ms;
+}
+
+/**
+ * Wait for the echo response with recvfrom
+ * return the responde
+ */
+static t_echoResponse getEchoResponse(int sockfd, int verbose)
+{
+    t_echoResponse echoResponse;
+    socklen_t addrlen = sizeof(echoResponse.src);
+    echoResponse.byteReceived = recvfrom(sockfd, echoResponse.buffer, sizeof(echoResponse.buffer), 0, (struct sockaddr *)&(echoResponse.src), &addrlen);
+    echoResponse.isValid = 0;
+
+    if (echoResponse.byteReceived < 0)
+    {
+        if (errno == EAGAIN || errno == EWOULDBLOCK)
+            printf("Request timed out.\n");
+        else
+            perror("recvfrom");
+    }
+    else
+    {
+        echoResponse.ip_hdr_len = (echoResponse.buffer[0] & 0x0F) * 4;
+        if ((size_t)(echoResponse.byteReceived) < echoResponse.ip_hdr_len + sizeof(struct icmphdr))
+        {
+            if (verbose)
+                fprintf(stderr, "ft_ping: packet too short (%zd bytes, hdr %d)\n", echoResponse.byteReceived, echoResponse.ip_hdr_len);
+        }
+    }
+    return (echoResponse.isValid = 1, echoResponse);
+}
+
+/**
+ * handle the echo response
+ */
+static void receiveEcho(int sockfd, t_sockinfo *sockinfo, int verbose)
+{
+    t_echoResponse echoResponse = getEchoResponse(sockfd, verbose);
+
+    if (echoResponse.isValid)
+    {
+        struct icmphdr *reply = (struct icmphdr *)(echoResponse.buffer + echoResponse.ip_hdr_len);
+        if (reply->type == ICMP_ECHOREPLY && reply->un.echo.id == htons(getpid() & 0xFFFF) && ntohs(reply->un.echo.sequence) == last_send.seq)
+        {
+            received++;
+            struct timespec recv_ts;
+            clock_gettime(CLOCK_MONOTONIC, &recv_ts);
+            double ms = (recv_ts.tv_sec - last_send.send_ts.tv_sec) * 1000.0 + (recv_ts.tv_nsec - last_send.send_ts.tv_nsec) / 1e6;
+            cumputeRTT(ms);
+            printf("%zd bytes from %s: icmp_seq=%u time=%.3f ms\n", echoResponse.byteReceived - echoResponse.ip_hdr_len, sockinfo->ipstr, last_send.seq, ms);
+        }
+        else if (verbose)
+        {
+            char src_ip[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, &echoResponse.src.sin_addr, src_ip, sizeof(src_ip));
+            printf("From %s: ICMP type=%d code=%d\n", src_ip, reply->type, reply->code);
+        }        
+    }
+}
+/**
+ * return a struct sockaddr_in representing the target to ping
+ * and a string representing the ip of the target to ping
+ */
+static t_sockinfo getDestination(const char *dest_ip_or_host)
+{
+    t_sockinfo sockinfo;
+    struct addrinfo hints;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_RAW;
+    hints.ai_protocol = IPPROTO_ICMP;
+    struct addrinfo *res = &hints;
+    if (getaddrinfo(dest_ip_or_host, NULL, &hints, &res) != 0)
+    {
+        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(errno));
+        exit(1);
+    }
+    struct sockaddr_in *ipv4 = (struct sockaddr_in *)res->ai_addr;
+    inet_ntop(AF_INET, &ipv4->sin_addr, sockinfo.ipstr, sizeof(sockinfo.ipstr));
+    sockinfo.sockaddr_in = *ipv4;
+    freeaddrinfo(res);
+    return (sockinfo);
+}
+
+/**
+ * If the echo response take more than 1 seconde, recv stop waiting
+ */
+static void setSocketTimeOut(int sockfd)
+{
+    struct timeval timeout;
+    timeout.tv_sec = 1;
+    timeout.tv_usec = 0;
+    if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0)
+    {
+        perror("setsockopt");
+        close(sockfd);
+        exit(1);
+    }
+}
+
+int ping(const char *dest_ip_or_host, int verbose)
+{
+    signal(SIGINT, handle_sigint);
+    gettimeofday(&start_time, NULL);
+    t_sockinfo sockinfo = getDestination(dest_ip_or_host);
+    int sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
+    if (sockfd < 0)
+        return (perror("socket"), EXIT_FAILURE);
+    setSocketTimeOut(sockfd);
+    if (verbose)
+        printf("ping: sockfd=%d (AF_INET RAW)\n\n", sockfd);
+    printf("PING %s (%s) %d data bytes\n", dest_ip_or_host, sockinfo.ipstr, PACKET_SIZE);
+    while (1)
+    {
+        if (send_echo(sockfd, &(sockinfo.sockaddr_in)) > 0)
+            receiveEcho(sockfd, &sockinfo, verbose);
+        sleep(1);
+    }
+    return EXIT_SUCCESS;
+}
