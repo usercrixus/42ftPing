@@ -91,9 +91,9 @@ static t_echoResponse getEchoResponse(int verbose)
 
     if (echoResponse.byteReceived < 0)
     {
-        if (errno == EAGAIN || errno == EWOULDBLOCK)
+        if ((errno == EAGAIN || errno == EWOULDBLOCK) && verbose)
             printf("Request timed out.\n");
-        else
+        else if (verbose)
             perror("recvfrom");
         echoResponse.isValid = 0;
     }
@@ -127,7 +127,7 @@ static void receiveEcho(t_sockinfo *sockinfo, int verbose)
             clock_gettime(CLOCK_MONOTONIC, &recv_ts);
             double ms = (recv_ts.tv_sec - send_ts.tv_sec) * 1000.0 + (recv_ts.tv_nsec - send_ts.tv_nsec) / 1e6;
             computeRTT(ms);
-            printf("%zd bytes from %s: icmp_seq=%u time=%.3f ms\n", echoResponse.byteReceived - echoResponse.ip_hdr_len, sockinfo->ipstr, seq - 1, ms);
+            printf("%zd bytes from %s: icmp_seq=%u ttl=%d time=%.3f ms\n", echoResponse.byteReceived - echoResponse.ip_hdr_len, sockinfo->ipstr, seq - 1, ((struct iphdr *)echoResponse.buffer)->ttl, ms);
         }
         else if (verbose)
         {
@@ -152,7 +152,7 @@ static t_sockinfo getDestination(const char *dest_ip_or_host)
     struct addrinfo *res;
     if (getaddrinfo(dest_ip_or_host, NULL, &hints, &res) != 0)
     {
-        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(errno));
+        fprintf(stderr, "ping: %s: Name or service not known\n", dest_ip_or_host);
         exit(1);
     }
     struct sockaddr_in *ipv4 = (struct sockaddr_in *)res->ai_addr;
@@ -182,13 +182,13 @@ int ping(const char *dest_ip_or_host, int verbose)
 {
     signal(SIGINT, handle_sigint);
     gettimeofday(&start_time, NULL);
-    t_sockinfo sockinfo = getDestination(dest_ip_or_host);
     sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
     if (sockfd < 0)
         return (perror("socket"), EXIT_FAILURE);
     setSocketTimeOut(sockfd);
     if (verbose)
-        printf("ping: sockfd=%d (AF_INET RAW)\n\n", sockfd);
+        printf("ping: sockfd: %d (socktype: AF_INET RAW)\n\n", sockfd);
+    t_sockinfo sockinfo = getDestination(dest_ip_or_host);
     printf("PING %s (%s) %d data bytes\n", dest_ip_or_host, sockinfo.ipstr, PACKET_SIZE);
     while (1)
     {
