@@ -1,199 +1,147 @@
 #include "ping.h"
 
-#define PACKET_SIZE 64
-
-/**
- * checksum — Compute the 16-bit Internet checksum (RFC 1071) over a data block.
- *
- * This routine implements the standard “ones-complement” checksum used by
- * ICMP, IP, TCP, UDP, etc.  It:
- *   1) Adds up all 16-bit words in the buffer.
- *   2) If there’s an odd byte at the end, it pads it to 16 bits and adds it.
- *   3) Folds any carry bits from the upper 16 bits back into the lower 16 bits
- *      (repeat until no more carries).
- *   4) Returns the ones-complement of the final sum.
- *
- * The caller should set the checksum field in the packet to 0 before calling.
- */
-static uint16_t checksum(void *data, int len)
-{
-    uint16_t *buf = data;
-    uint32_t sum = 0;
-    for (int i = len; i > 1; i -= 2)
-        sum += *buf++;
-    if (len == 1)
-        sum += *(uint8_t *)buf;
-    sum = (sum >> 16) + (sum & 0xFFFF);
-    sum += (sum >> 16);
-    return ~sum;
-}
-/**
- * build the ping packet
- */
-static int build_packet(char *packet)
-{
-    struct icmphdr *icmp = (struct icmphdr *)packet;
-    icmp->type = ICMP_ECHO;
-    icmp->code = 0;
-    icmp->un.echo.id = htons(getpid() & 0xFFFF);
-    icmp->un.echo.sequence = htons(seq);
-    icmp->checksum = 0;
-    memset(packet + sizeof(*icmp), 0xA5, PACKET_SIZE - sizeof(*icmp));
-    icmp->checksum = checksum(packet, PACKET_SIZE);
-    return PACKET_SIZE;
-}
-
-/**
- * send a ping to the target
- */
-static int send_echo(struct sockaddr_in *dest)
+static int sendPing(struct sockaddr_in *dest)
 {
     char packet[PACKET_SIZE];
     int len = build_packet(packet);
-    clock_gettime(CLOCK_MONOTONIC, &send_ts);
-    if (sendto(sockfd, packet, len, 0, (struct sockaddr *)dest, sizeof(*dest)) <= 0)
+    gettimeofday(&stat.send_time, NULL);
+    if (sendto(stat.sockfd, packet, len, 0, (struct sockaddr *)dest, sizeof(*dest)) <= 0)
         return (perror("sendto"), -1);
-    transmitted++;
-    seq++;
+    stat.transmitted++;
+    stat.seq++;
     return len;
 }
 
 /*
  * cumpute the rtt
- * RTT stands for Round-Trip Time—the elapsed time between when you send an ICMP “echo request”
+ * RTT stands for Round-Trip Time — the elapsed time between when you send an ICMP “echo request”
  * packet and when you receive the corresponding “echo reply.”
  */
-void computeRTT(double ms)
+static void computeRTT(double ms)
 {
-    if (received == 1)
-        rtt_min = rtt_max = ms;
+    if (stat.received == 1)
+        stat.rtt_min = stat.rtt_max = ms;
     else
     {
-        if (ms < rtt_min)
-            rtt_min = ms;
-        if (ms > rtt_max)
-            rtt_max = ms;
+        if (ms < stat.rtt_min)
+            stat.rtt_min = ms;
+        if (ms > stat.rtt_max)
+            stat.rtt_max = ms;
     }
-    rtt_sum += ms;
-    rtt_sum2 += ms * ms;
+    stat.rtt_sum += ms;
+    stat.rtt_squared_sum += ms * ms;
 }
 
-/**
- * Wait for the echo response with recvfrom
- * return the responde
- */
-static t_echoResponse getEchoResponse(int verbose)
+static void getPingResponse(int verbose, t_pingResponse *pingResponse)
 {
-    t_echoResponse echoResponse;
-    socklen_t addrlen = sizeof(echoResponse.src);
-    echoResponse.byteReceived = recvfrom(sockfd, echoResponse.buffer, sizeof(echoResponse.buffer), 0, (struct sockaddr *)&(echoResponse.src), &addrlen);
-    echoResponse.isValid = 1;
+    socklen_t addrlen = sizeof(pingResponse->src);
+    pingResponse->byteReceived = recvfrom(stat.sockfd, pingResponse->buffer, sizeof(pingResponse->buffer), 0, (struct sockaddr *)&(pingResponse->src), &addrlen);
+    pingResponse->isValid = 1;
 
-    if (echoResponse.byteReceived < 0)
+    if (pingResponse->byteReceived < 0)
     {
         if ((errno == EAGAIN || errno == EWOULDBLOCK) && verbose)
             printf("Request timed out.\n");
         else if (verbose)
             perror("recvfrom");
-        echoResponse.isValid = 0;
+        pingResponse->isValid = 0;
     }
     else
     {
-        echoResponse.ip_hdr_len = (echoResponse.buffer[0] & 0x0F) * 4;
-        if ((size_t)(echoResponse.byteReceived) < echoResponse.ip_hdr_len + sizeof(struct icmphdr))
+        pingResponse->ip_hdr_len = (pingResponse->buffer[0] & 0x0F) * 4;
+        if ((size_t)(pingResponse->byteReceived) < pingResponse->ip_hdr_len + sizeof(struct icmphdr))
         {
             if (verbose)
-                fprintf(stderr, "ft_ping: packet too short (%zd bytes, hdr %d)\n", echoResponse.byteReceived, echoResponse.ip_hdr_len);
-            echoResponse.isValid = 0;
+                fprintf(stderr, "ft_ping: packet too short (%zd bytes, hdr %d)\n", pingResponse->byteReceived, pingResponse->ip_hdr_len);
+            pingResponse->isValid = 0;
         }
     }
-    return (echoResponse);
 }
 
-/**
- * handle the echo response
- */
-static void receiveEcho(t_sockinfo *sockinfo, int verbose)
+static void receivePing(t_sockinfo *sockinfo, int verbose)
 {
-    t_echoResponse echoResponse = getEchoResponse(verbose);
+    t_pingResponse pingResponse;
+    getPingResponse(verbose, &pingResponse);
 
-    if (echoResponse.isValid)
+    if (pingResponse.isValid)
     {
-        struct icmphdr *reply = (struct icmphdr *)(echoResponse.buffer + echoResponse.ip_hdr_len);
-        if (reply->type == ICMP_ECHOREPLY && reply->un.echo.id == htons(getpid() & 0xFFFF) && ntohs(reply->un.echo.sequence) == seq - 1)
+        struct icmphdr *reply = (struct icmphdr *)(pingResponse.buffer + pingResponse.ip_hdr_len); // we skip the ip header, so we get the icm response
+        if (reply->type == ICMP_ECHOREPLY && reply->un.echo.id == htons(getpid() & 0xFFFF) && ntohs(reply->un.echo.sequence) == stat.seq - 1)
         {
-            received++;
-            struct timespec recv_ts;
-            clock_gettime(CLOCK_MONOTONIC, &recv_ts);
-            double ms = (recv_ts.tv_sec - send_ts.tv_sec) * 1000.0 + (recv_ts.tv_nsec - send_ts.tv_nsec) / 1e6;
+            stat.received++; // we just received a new response
+            struct timeval recv_time;
+            gettimeofday(&recv_time, NULL);
+            double ms = (recv_time.tv_sec - stat.send_time.tv_sec) * 1000.0 + (recv_time.tv_usec - stat.send_time.tv_usec) / 1000.0; // compute the time to receive this ping (rec - send)
             computeRTT(ms);
-            printf("%zd bytes from %s: icmp_seq=%u ttl=%d time=%.3f ms\n", echoResponse.byteReceived - echoResponse.ip_hdr_len, sockinfo->ipstr, seq - 1, ((struct iphdr *)echoResponse.buffer)->ttl, ms);
+            if (strcmp(sockinfo->hostname, sockinfo->ipstr) == 0) // if we ping if an ip, this should be true, if we ping with a domain name, we should fall in the else condition
+                printf("%zd bytes from %s: icmp_seq=%u ttl=%d time=%.3f ms\n", pingResponse.byteReceived - pingResponse.ip_hdr_len, sockinfo->ipstr, stat.seq - 1, ((struct iphdr *)pingResponse.buffer)->ttl, ms);
+            else
+                printf("%zd bytes from %s (%s): icmp_seq=%u ttl=%d time=%.3f ms\n", pingResponse.byteReceived - pingResponse.ip_hdr_len, sockinfo->hostname, sockinfo->ipstr, stat.seq - 1, ((struct iphdr *)pingResponse.buffer)->ttl, ms);
         }
-        else if (verbose)
+        else if (verbose) // unexpected reply...
         {
             char src_ip[INET_ADDRSTRLEN];
-            inet_ntop(AF_INET, &echoResponse.src.sin_addr, src_ip, sizeof(src_ip));
+            inet_ntop(AF_INET, &pingResponse.src.sin_addr, src_ip, sizeof(src_ip));
             printf("From %s: ICMP type=%d code=%d\n", src_ip, reply->type, reply->code);
-        }        
+        }
     }
 }
-/**
- * return a struct sockaddr_in representing the target to ping
- * and a string representing the ip of the target to ping
- */
-static t_sockinfo getDestination(const char *dest_ip_or_host)
+
+static void getDestination(const char *dest_ip_or_host, t_sockinfo *sockinfo)
 {
-    t_sockinfo sockinfo;
     struct addrinfo hints;
-    memset(&hints, 0, sizeof(hints));
-    hints.ai_family = AF_INET;
-    hints.ai_socktype = SOCK_RAW;
-    hints.ai_protocol = IPPROTO_ICMP;
     struct addrinfo *res;
-    if (getaddrinfo(dest_ip_or_host, NULL, &hints, &res) != 0)
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;        // IPV4 only
+    hints.ai_socktype = SOCK_RAW;     // RAW SOCKET
+    hints.ai_protocol = IPPROTO_ICMP; // ICMP protocol
+
+    if (getaddrinfo(dest_ip_or_host, NULL, &hints, &res) != 0) // Turn dest into IPv4 address.
     {
         fprintf(stderr, "ping: %s: Name or service not known\n", dest_ip_or_host);
         exit(1);
     }
-    struct sockaddr_in *ipv4 = (struct sockaddr_in *)res->ai_addr;
-    inet_ntop(AF_INET, &ipv4->sin_addr, sockinfo.ipstr, sizeof(sockinfo.ipstr));
-    sockinfo.sockaddr_in = *ipv4;
+
+    struct sockaddr_in *ipV4 = (struct sockaddr_in *)res->ai_addr;
+    sockinfo->sockaddr_in = *ipV4;                                                 // save it for later.
+    inet_ntop(AF_INET, &ipV4->sin_addr, sockinfo->ipstr, sizeof(sockinfo->ipstr)); // Convert the 32-bit address to dotted-decimal text, e.g. "163.70.128.35", and save in sockinfo->ipstr.
+
+    struct in_addr tmp;
+    if (inet_pton(AF_INET, dest_ip_or_host, &tmp) == 1)                           // try to parse dest as an IPv4 literal.
+        strncpy(sockinfo->hostname, sockinfo->ipstr, sizeof(sockinfo->hostname)); // If it succeeds, the user literally typed an IP
+    else
+    {
+        if (getnameinfo((struct sockaddr *)ipV4, sizeof(*ipV4), sockinfo->hostname, sizeof(sockinfo->hostname), NULL, 0, NI_NAMEREQD) != 0) // set hostname depending on the ipV4 domain name
+            strncpy(sockinfo->hostname, sockinfo->ipstr, sizeof(sockinfo->hostname));                                                       // on error, we still set hostname on IP instead of domain name
+    }
+
     freeaddrinfo(res);
-    return (sockinfo);
 }
 
-/**
- * If the echo response take more than 1 seconde, recv stop waiting
- */
-static void setSocketTimeOut(int sockfd)
+static void printHeader(const char *dest_ip_or_host, t_sockinfo *sockinfo)
 {
-    struct timeval timeout;
-    timeout.tv_sec = 1;
-    timeout.tv_usec = 0;
-    if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0)
-    {
-        perror("setsockopt");
-        close(sockfd);
-        exit(1);
-    }
+    int icmp_hdr = sizeof(struct icmphdr); // icmp header usually 8 bytes
+    int ip_hdr = sizeof(struct iphdr);     // ip header usually 20 bytes
+    int payload = PACKET_SIZE - icmp_hdr;  // payload total 56
+    int on_wire = PACKET_SIZE + ip_hdr;    // packet total 84
+    printf("PING %s (%s) %d(%d) bytes of data\n", dest_ip_or_host, sockinfo->ipstr, payload, on_wire);
 }
 
 int ping(const char *dest_ip_or_host, int verbose)
 {
+    initStat();
     signal(SIGINT, handle_sigint);
-    gettimeofday(&start_time, NULL);
-    sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
-    if (sockfd < 0)
-        return (perror("socket"), EXIT_FAILURE);
-    setSocketTimeOut(sockfd);
+    gettimeofday(&stat.start_time, NULL);
+    setSocket();
     if (verbose)
-        printf("ping: sockfd: %d (socktype: AF_INET RAW)\n\n", sockfd);
-    t_sockinfo sockinfo = getDestination(dest_ip_or_host);
-    printf("PING %s (%s) %d data bytes\n", dest_ip_or_host, sockinfo.ipstr, PACKET_SIZE);
+        printf("ping: sockfd4.fd: %d (socktype: SOCK_RAW)\n\n", stat.sockfd);
+    t_sockinfo sockinfo;
+    getDestination(dest_ip_or_host, &sockinfo);
+    printHeader(dest_ip_or_host, &sockinfo);
     while (1)
     {
-        if (send_echo(&(sockinfo.sockaddr_in)) > 0)
-            receiveEcho(&sockinfo, verbose);
+        if (sendPing(&(sockinfo.sockaddr_in)) > 0)
+            receivePing(&sockinfo, verbose);
         sleep(1);
     }
     return EXIT_SUCCESS;

@@ -1,12 +1,15 @@
 #include "globals.h"
 
-int sockfd = -1;
-int transmitted = 0;
-int received = 0;
-double rtt_sum = 0;
-double rtt_sum2 = 0;
-double rtt_min = 0;
-double rtt_max = 0;
-uint16_t seq = 1;
-struct timeval start_time;
-struct timespec send_ts;
+t_stat stat;
+
+void initStat()
+{
+	stat.sockfd = -1;
+	stat.transmitted = 0;
+	stat.received = 0;
+	stat.rtt_sum = 0;
+	stat.rtt_squared_sum = 0;
+	stat.rtt_min = 0;
+	stat.rtt_max = 0;
+	stat.seq = 1;
+}

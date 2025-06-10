@@ -2,6 +2,8 @@ OBJ = \
 	srcs/ping.o \
 	srcs/globals.o \
 	srcs/signal.o \
+	srcs/packet.o \
+	srcs/socket.o \
 	main.o \
 
 all: ft_ping

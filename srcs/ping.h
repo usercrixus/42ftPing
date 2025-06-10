@@ -15,11 +15,15 @@
 
 #include "globals.h"
 #include "signal.h"
+#include "packet.h"
+#include "params.h"
+#include "socket.h"
 
 typedef struct s_sockinfo
 {
 	struct sockaddr_in sockaddr_in;
 	char ipstr[INET_ADDRSTRLEN];
+	char hostname[NI_MAXHOST];
 } t_sockinfo;
 
 typedef struct s_echoResponse
@@ -29,6 +33,9 @@ typedef struct s_echoResponse
 	ssize_t byteReceived;
 	struct sockaddr_in src;
 	int isValid;
-} t_echoResponse;
+} t_pingResponse;
 
+/**
+ * ping entry point
+ */
 int ping(const char *dest_ip_or_host, int verbose);

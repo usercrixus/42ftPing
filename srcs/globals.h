@@ -8,13 +8,23 @@
 #include <stdlib.h>
 #include <stdint.h>
 
-extern struct timespec send_ts;
-extern uint16_t seq;
-extern int transmitted;
-extern int received;
-extern double rtt_sum;
-extern double rtt_sum2;
-extern double rtt_min;
-extern double rtt_max;
-extern struct timeval start_time;
-extern int sockfd;
+typedef struct
+{
+	struct timeval send_time;
+	uint16_t seq;
+	int transmitted;
+	int received;
+	double rtt_sum;
+	double rtt_squared_sum;
+	double rtt_min;
+	double rtt_max;
+	struct timeval start_time;
+	int sockfd;
+} t_stat;
+
+extern t_stat stat;
+
+/**
+ * initialize the stat global var
+ */
+void initStat();

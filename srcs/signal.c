@@ -5,20 +5,20 @@ void handle_sigint(int signo)
 	(void)signo;
 	struct timeval now;
 	gettimeofday(&now, NULL);
-	double elapsed = (now.tv_sec - start_time.tv_sec) * 1000.0 + (now.tv_usec - start_time.tv_usec) / 1000.0;
+	double elapsed = (now.tv_sec - stat.start_time.tv_sec) * 1000.0 + (now.tv_usec - stat.start_time.tv_usec) / 1000.0;
 	printf("\n--- ping statistics ---\n");
 	printf("%d packets transmitted, %d received, %.0f%% packet loss, time %.0fms\n",
-		   transmitted,
-		   received,
-		   transmitted ? ((transmitted - received) * 100.0 / transmitted) : 0.0,
+		   stat.transmitted,
+		   stat.received,
+		   stat.transmitted ? ((stat.transmitted - stat.received) * 100.0 / stat.transmitted) : 0.0,
 		   elapsed);
-	if (received > 0)
+	if (stat.received > 0)
 	{
-		double avg = rtt_sum / received;
-		double mdev = sqrt(rtt_sum2 / received - avg * avg);
-		printf("rtt min/avg/max/mdev = %.3f/%.3f/%.3f/%.3f ms\n", rtt_min, avg, rtt_max, mdev);
+		double avg = stat.rtt_sum / stat.received;
+		double mdev = sqrt(stat.rtt_squared_sum / stat.received - avg * avg);
+		printf("rtt min/avg/max/mdev = %.3f/%.3f/%.3f/%.3f ms\n", stat.rtt_min, avg, stat.rtt_max, mdev);
 	}
-	if (sockfd >= 0)
-		close(sockfd);
+	if (stat.sockfd >= 0)
+		close(stat.sockfd);
 	exit(0);
 }
