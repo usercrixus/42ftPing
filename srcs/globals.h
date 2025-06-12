@@ -1,12 +1,7 @@
 #pragma once
 
-#include <signal.h>
-#include <sys/time.h>
-#include <stddef.h>
-#include <stdio.h>
-#include <math.h>
-#include <stdlib.h>
-#include <stdint.h>
+#include <stdint.h>    // for uint16_t
+#include <sys/time.h>  // for timeval
 
 typedef struct
 {

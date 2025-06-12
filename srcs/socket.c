@@ -1,4 +1,11 @@
 #include "socket.h"
+#include <netinet/in.h>  // for IPPROTO_ICMP
+#include <stdio.h>       // for perror
+#include <stdlib.h>      // for exit
+#include <sys/socket.h>  // for setsockopt, socket, AF_INET, SOCK_RAW, SOL_S...
+#include <sys/time.h>    // for timeval
+#include <unistd.h>      // for close
+#include "globals.h"
 
 /**
  * If the echo response take more than 1 seconde, recv stop waiting

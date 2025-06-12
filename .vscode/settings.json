@@ -67,7 +67,19 @@
         "ip_icmp.h": "c",
         "stdio.h": "c",
         "math.h": "c",
-        "errno.h": "c"
+        "errno.h": "c",
+        "params.h": "c",
+        "time.h": "c",
+        "inet.h": "c",
+        "globals.h": "c",
+        "sendping.h": "c",
+        "stat.h": "c",
+        "signal.h": "c",
+        "packet.h": "c",
+        "in.h": "c",
+        "complex": "c",
+        "string.h": "c",
+        "unistd.h": "c"
     },
     "C_Cpp.errorSquiggles": "disabled"
 }

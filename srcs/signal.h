@@ -1,8 +1,5 @@
 #pragma once
 
-#include "globals.h"
-#include <unistd.h>
-
 /**
  * handle_sigint — SIGINT (Ctrl-C) handler for ping()
  *

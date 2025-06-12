@@ -1,4 +1,10 @@
 #include "signal.h"
+#include "globals.h"
+#include <math.h>      // for sqrt
+#include <stdio.h>     // for printf
+#include <stdlib.h>    // for exit
+#include <sys/time.h>  // for timeval, gettimeofday
+#include <unistd.h>    // for close, NULL
 
 void handle_sigint(int signo)
 {
