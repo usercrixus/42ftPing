@@ -15,13 +15,13 @@ static uint16_t checksum(void *data, int len)
 {
     uint16_t *buf = data;
     uint32_t sum = 0;
-    for (int i = len; i > 1; i -= 2)
+    for (int i = len; i > 1; i -= 2) // sum the whole packet
         sum += *buf++;
-    if (len == 1)
+    if (len == 1) // if packet size is odd
         sum += *(uint8_t *)buf;
-    sum = (sum >> 16) + (sum & 0xFFFF);
-    sum += (sum >> 16);
-    return ~sum;
+    sum = (sum >> 16) + (sum & 0xFFFF); // add 16 lower bits with 16 higher bits
+    sum += (sum >> 16); // if there is a carry bit, add it, as we have mawimum of information
+    return ~sum; // ~x + x = 0xFFFF if x is on 16 bits, so easy to verify the checksum.
 }
 
 static int build_packet(char *packet)
