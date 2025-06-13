@@ -27,6 +27,7 @@ static void getDestination(const char *dest_ip_or_host, t_sockinfo *sockinfo)
     hints.ai_family = AF_INET;        // IPV4 only
     hints.ai_socktype = SOCK_RAW;     // RAW SOCKET
     hints.ai_protocol = IPPROTO_ICMP; // ICMP protocol
+    hints.ai_flags    = AI_CANONNAME;
 
     if (getaddrinfo(dest_ip_or_host, NULL, &hints, &res) != 0) // Turn dest into IPv4 address.
     {
@@ -46,7 +47,11 @@ static void getDestination(const char *dest_ip_or_host, t_sockinfo *sockinfo)
         if (getnameinfo((struct sockaddr *)ipV4, sizeof(*ipV4), sockinfo->hostname, sizeof(sockinfo->hostname), NULL, 0, NI_NAMEREQD) != 0) // set hostname depending on the ipV4 domain name
             strncpy(sockinfo->hostname, sockinfo->ipstr, sizeof(sockinfo->hostname));                                                       // on error, we still set hostname on IP instead of domain name
     }
-
+    if (res->ai_canonname && *res->ai_canonname) {
+        strncpy(sockinfo->canonname, res->ai_canonname, sizeof(sockinfo->canonname));
+    } else {
+        strncpy(sockinfo->canonname, sockinfo->hostname, sizeof(sockinfo->canonname));
+    }
     freeaddrinfo(res);
 }
 
@@ -70,7 +75,7 @@ int ping(const char *dest_ip_or_host, int verbose)
     if (verbose)
     {
         printf("ping: sockfd4.fd: %d (socktype: SOCK_RAW), hints.ai_family: AF_INET\n\n", stat.sockfd);
-        printf("ai->ai_family: AF_INET, ai->ai_canonname: '%s'\n", dest_ip_or_host);
+        printf("ai->ai_family: AF_INET, ai->ai_canonname: '%s'\n", sockinfo.canonname);
     }
     printHeader(dest_ip_or_host, &sockinfo);
     while (1)
