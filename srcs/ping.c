@@ -70,7 +70,7 @@ int ping(const char *dest_ip_or_host, int verbose)
     if (verbose)
     {
         printf("ping: sockfd4.fd: %d (socktype: SOCK_RAW), hints.ai_family: AF_INET\n\n", stat.sockfd);
-        printf("ai->ai_family: AF_INET, ai->ai_canonname: '%s'", sockinfo.hostname);
+        printf("ai->ai_family: AF_INET, ai->ai_canonname: '%s'\n", dest_ip_or_host);
     }
     printHeader(dest_ip_or_host, &sockinfo);
     while (1)
