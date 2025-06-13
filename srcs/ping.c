@@ -71,12 +71,11 @@ int ping(const char *dest_ip_or_host, int verbose)
     gettimeofday(&stat.start_time, NULL);
     setSocket();
     t_sockinfo sockinfo;
+    if (verbose)
+        printf("ping: sockfd4.fd: %d (socktype: SOCK_RAW), hints.ai_family: AF_INET\n\n", stat.sockfd);
     getDestination(dest_ip_or_host, &sockinfo);
     if (verbose)
-    {
-        printf("ping: sockfd4.fd: %d (socktype: SOCK_RAW), hints.ai_family: AF_INET\n\n", stat.sockfd);
         printf("ai->ai_family: AF_INET, ai->ai_canonname: '%s'\n", sockinfo.canonname);
-    }
     printHeader(dest_ip_or_host, &sockinfo);
     while (1)
     {
